@@ -5,7 +5,7 @@
 #define CLOCK_SPEED 16000000
 #define ZERO_CROSSINGS_PER_SECOND 100
 #define TICKS_PER_PHASE 20000
-#define INT_PIN 0
+#define INT_PIN 2
 
 int PhaseControl::_outputPin = 1;
 volatile unsigned int PhaseControl::_phaseTicks = 0;
