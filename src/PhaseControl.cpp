@@ -5,32 +5,32 @@
 #define CLOCK_SPEED 16000000
 #define ZERO_CROSSINGS_PER_SECOND 100
 #define TICKS_PER_PHASE 20000
-#define INT_PIN 2
+#define OUT_PIN 6
+#define INT_PIN 7
 
-int PhaseControl::_outputPin = 1;
 volatile unsigned int PhaseControl::_phaseTicks = 0;
 float PhaseControl::_phase = 0;
+bool PhaseControl::_fired = true;
 
 
-void PhaseControl::initialize(int outputPin)
+void PhaseControl::initialize()
 {
-    // On Digispark Prom INT 0 is linked to pin 0.
-    _outputPin = outputPin;
+    // Hard coded pins
 
     pinMode(INT_PIN, INPUT);
-    pinMode(_outputPin, OUTPUT);
+    pinMode(OUT_PIN, OUTPUT);
 
-    cli();                                  // Disable interrupts for configuration
-    // Configure zero cross detection
-    EIMSK |= (1 << INT0);                   // Enable INT0 interrupt
-    EICRA |= (0 << ISC01) | (1 << ISC00);   // Trigger on any change
+     cli();                                  // Disable interrupts for configuration
+     // Configure zero cross detection
+     EIMSK |= (1 << INT6);                   // Enable INT6 interrupt
+     EICRB |= (1 << ISC61) | (1 << ISC60);   // Trigger on rising edge
 
-    // Configure Timer1 to provide the delayed triac trigger
-    TCCR1A = 0;
-    TCCR1B = (1 << WGM12) | (1 << CS11);    // Pre-Scaler: 8, Clear Timer Compare
+     // Configure Timer1 to provide the delayed triac trigger
+     TCCR1A = 0;
+     TCCR1B = (1 << WGM12) | (1 << CS11);    // Pre-Scaler: 8, Clear Timer Compare
 
-    // Enable interrupts
-    sei();
+     // Enable interrupts
+     sei();
 }
 
 void PhaseControl::setPhase(float phase)
@@ -50,28 +50,37 @@ void PhaseControl::setPhase(float phase)
 
     _phase = phase;
     // Set _phaseTicks here based on timer frequency and sine wave calculations
-    // We want the area below the cut sine phase to be a fraction of the total area 2
+    // We want the area below the cut sine phase to be a fraction of the total area
     float startTime = acos(2 * phase - 1) / M_PI;
     _phaseTicks = (unsigned int)(startTime * TICKS_PER_PHASE);
 }
 
 void PhaseControl::handleZeroCrossing()
 {
-    cli();                  // Disable inrterrupts for timer configuration
-    OCR1A = _phaseTicks;
-    TCNT1 = 0;
+    cli();                      // Disable inrterrupts for timer configuration
+    OCR1A = _phaseTicks;        // Set timer overflow based on phase
+    TCNT1 = 0;                  // Reset timer
     sei();
+    _fired = false;
 }
 
 void PhaseControl::handleTimer()
 {
+    if(_fired)
+        return;
+
+    _fired = true;
+
     // Signal the triac to fire
-    digitalWrite(_outputPin, HIGH);
-    delayMicroseconds(5);
-    digitalWrite(_outputPin, LOW);
+    cli();
+    PORTD |= (1 << 7);          // Signal PIN 7
+    delayMicroseconds(10);
+    PORTD &= ~(1 << 7);
+    sei();
 }
 
-ISR(INT0_vect)
+
+ISR(INT6_vect)
 {
     PhaseControl::handleZeroCrossing();
 }

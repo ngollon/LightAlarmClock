@@ -18,25 +18,27 @@
 #define LINGER_DELAY 2000
 #define TIME_UPDATE_DELAY 1000
 
+#define ENCODER_MICROSTEPS 4
 
-Button _alarmButton = Button(7, true, true, 20);
-Button _clockButton = Button(6, true, true, 20);
+
+Button _alarmButton = Button(5, true, true, 20);
+Button _clockButton = Button(4, true, true, 20);
 Encoder _encoder = Encoder(8, 9);
 
 DS1307 rtc;
 
-Adafruit_7segment display = Adafruit_7segment();
+Adafruit_7segment _display = Adafruit_7segment();
 
 int _currentMode;
 int _lingerStart;
 bool _alarmActivated;
 
-byte _alarmHour;
-byte _alarmMinute;
+int8_t  _alarmHour;
+int8_t  _alarmMinute;
 
-byte _currentHour;
-byte _currentMinute;
-byte _currentSecond;
+int8_t  _currentHour;
+int8_t  _currentMinute;
+int8_t  _currentSecond;
 
 unsigned long _lastClockUpdate;
 
@@ -51,19 +53,31 @@ void updateDisplay();
 
 void setup()
 {
-    PhaseControl::initialize(1);
-    PhaseControl::setPhase(0.5);
-
+    Serial.begin(9600);
+    delay(50);
+    Serial.println("Starting");
+    PhaseControl::initialize();
+    PhaseControl::setPhase(0);
+    Serial.println("PhaseControl initialized.");
     _currentMode = MODE_OFF;
 
-    rtc.initialize();   // ToDo: go to error mode if failed
-    rtc.setTime24(0, 0, 0);
+    //rtc.initialize();   // ToDo: go to error mode if failed
+    //rtc.setTime24(0, 0, 0);
+    Serial.println("RTC initialized.");
 
-    _lastEncoderPosition = encoder.read();
+    _display.begin(0x70);
+    Serial.println("Display initialized.");
+
+    _lastEncoderPosition = _encoder.read() / ENCODER_MICROSTEPS;
+    Serial.println(_lastEncoderPosition);
 }
 
 void loop()
 {
+    long mil = millis();
+
+    PhaseControl::setPhase((mil % 100000) / 100000.0 );
+
     readInputMode();
     handleEncoder();
     updateClock();
@@ -75,27 +89,32 @@ void readInputMode()
 {
     _alarmButton.read();
     _clockButton.read();
-    _currentEncoderPosition = encoder.read();
+    _currentEncoderPosition = _encoder.read() / ENCODER_MICROSTEPS;
     _encoderDifference = _currentEncoderPosition - _lastEncoderPosition;
+
+    if(_currentEncoderPosition != _lastEncoderPosition) {
+        Serial.print("Current: ");Serial.print(_currentEncoderPosition);Serial.print("   Diff: ");Serial.println(_encoderDifference);
+    }
+
     _lastEncoderPosition = _currentEncoderPosition;
 
     if(_alarmButton.isPressed())
     {
-        if(_alarmButton.isPressedFor(HOLD_DELAY))
+        if(_alarmButton.pressedFor(HOLD_DELAY))
             _currentMode = MODE_ALARM_HOLD;
         else
             _currentMode = MODE_ALARM;
     }
-    else if(_clockButton.IsPressed())
+    else if(_clockButton.isPressed())
     {
-        if(_clockButton.isPressedFor(HOLD_DELAY))
+        if(_clockButton.pressedFor(HOLD_DELAY))
             _currentMode = MODE_CLOCK_HOLD;
         else
             _currentMode = MODE_CLOCK;
     }
     else
     {
-        switch(currentMode)
+        switch(_currentMode)
         {
             case MODE_ALARM:
                 if(_alarmActivated)
@@ -127,17 +146,17 @@ void readInputMode()
     }
 }
 
-void ensureValidClock(byte *hour, byte *minute)
+void ensureValidClock(int8_t  *hour, int8_t  *minute)
 {
     while(*minute > 59)
     {
         *minute -= 60;
-        *hour++;
+        *hour += 1;
     }
     while(*minute < 0)
     {
         *minute += 60;
-        *hour--;
+        *hour -= 1;
     }
     while(*hour > 23)
         *hour -= 24;
@@ -157,9 +176,9 @@ void handleEncoder()
     }
     else if(_currentMode == MODE_CLOCK_HOLD)
     {
-        _clockMinute += _encoderDifference;
-        ensureValidClock(&_clockHour, &_clockMinute);
-        rtc.setTime24(_currentHour, _currentMinute, 0);
+        _currentMinute += _encoderDifference;
+        ensureValidClock(&_currentHour, &_currentMinute);
+        rtc.setTime24(_currentHour, _currentMinute, _currentSecond);
     }
     else
     {
@@ -169,12 +188,14 @@ void handleEncoder()
 
 void updateClock()
 {
+    #if 0
     unsigned long currentMillis = millis();
     if(_lastClockUpdate > currentMillis || _lastClockUpdate + TIME_UPDATE_DELAY < currentMillis)
     {
         rtc.getTime24(&_currentHour, &_currentMinute, &_currentSecond);
         _lastClockUpdate = currentMillis;
     }
+    #endif
 }
 
 void updateDisplay()
@@ -182,27 +203,27 @@ void updateDisplay()
     switch(_currentMode)
     {
         case MODE_OFF:
-            display.clear();
-            display.writeDigitRaw(4, _alarmActivated ? (1 << 7) : 0);
+            _display.clear();
+            _display.writeDigitRaw(4, _alarmActivated ? (1 << 7) : 0);
             break;
         case MODE_ALARM:
         case MODE_ALARM_HOLD:
         case MODE_ALARM_LINGER:
-            display.writeDigitNum(0, _alarmHour / 10, false);
-            display.writeDigitNum(1, _alarmHour % 10, false);
-            display.drawColon(true);
-            display.writeDigitNum(3, _alarmMinute / 10, false);
-            display.writeDigitRaw(4, _alarmMinute % 10,  _alarmActivated);
+            _display.writeDigitNum(0, _alarmHour / 10, false);
+            _display.writeDigitNum(1, _alarmHour % 10, false);
+            _display.drawColon(true);
+            _display.writeDigitNum(3, _alarmMinute / 10, false);
+            _display.writeDigitNum(4, _alarmMinute % 10,  _alarmActivated);
             break;
         case MODE_CLOCK:
         case MODE_CLOCK_HOLD:
         case MODE_CLOCK_LINGER:
-            display.writeDigitNum(0, _clockHour / 10, false);
-            display.writeDigitNum(1, _clockHour % 10, false);
-            display.drawColon(true);
-            display.writeDigitNum(3, _clockMinute / 10, false);
-            display.writeDigitRaw(4, _clockMinute % 10,  _alarmActivated);
+            _display.writeDigitNum(0, _currentHour / 10, false);
+            _display.writeDigitNum(1, _currentHour % 10, false);
+            _display.drawColon(true);
+            _display.writeDigitNum(3, _currentMinute / 10, false);
+            _display.writeDigitNum(4, _currentMinute % 10,  _alarmActivated);
             break;
     }
-    display.writeDisplay();
+    _display.writeDisplay();
 }
