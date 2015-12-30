@@ -5,6 +5,7 @@
 #include "PhaseControl.h"
 #include "I2Cdev.h"
 #include "DS1307.h"
+#include <Math.h>
 
 #define MODE_OFF 0
 #define MODE_ALARM 1
@@ -76,7 +77,7 @@ void loop()
 {
     long mil = millis();
 
-    PhaseControl::setPhase((mil % 100000) / 100000.0 );
+    PhaseControl::setPhase(sin(M_PI * (mil % 1000) / 1000.0 ));
 
     readInputMode();
     handleEncoder();
